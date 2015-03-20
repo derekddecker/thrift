@@ -93,7 +93,8 @@ module Thrift
 
     def read(sz)
       raise IOError, "closed stream" unless open?
-
+      
+      # self.close && raise TransportException.new(TransportException::NOT_OPEN, "Socket is invalid.") if @handle.eof?
       begin
         if @timeout.nil? or @timeout == 0
           data = @handle.readpartial(sz)
@@ -117,9 +118,14 @@ module Thrift
         # don't let this get caught by the StandardError handler
         raise e
       rescue StandardError => e
+        if @handle.eof?
+          ex = TransportException.new(TransportException::NOT_OPEN, "No data to read from socket.")
+        else
+          ex = TransportException.new(TransportException::NOT_OPEN, e.message)
+        end
         @handle.close unless @handle.closed?
         @handle = nil
-        raise TransportException.new(TransportException::NOT_OPEN, e.message)
+        raise ex
       end
       if (data.nil? or data.length == 0)
         raise TransportException.new(TransportException::UNKNOWN, "Socket: Could not read #{sz} bytes from #{@desc}")
@@ -130,6 +136,11 @@ module Thrift
     def close
       @handle.close unless @handle.nil? or @handle.closed?
       @handle = nil
+    end
+
+    def abortive_disconnect
+      @handle.setsockopt(::Socket::SOL_SOCKET, ::Socket::SO_LINGER, [0, 0].pack("ii")) unless @handle.nil? or @handle.closed?
+      close
     end
 
     def to_io
